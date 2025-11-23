@@ -41,11 +41,7 @@ pipeline {
             }
         }
 
-        stage('Inject Spring Config (Secret File)') {
-            steps {
-                withCredentials()
-            }
-        }
+      
 
         // 기존 소스 
         // stage('Copy to Remote Server') {
