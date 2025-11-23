@@ -50,7 +50,7 @@ pipeline {
             }
         }
 
-        //ENDSSH 앞에 공백이 있으면 오류가 납니다. !
+        //ENDSSH 앞 혹은 뒤에 공백이 있으면 오류가 납니다. !
         stage('Remote Docker Build & Deploy') {
             steps {
                 sshagent (credentials: [env.SSH_CREDENTIALS_ID]) {
