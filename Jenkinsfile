@@ -41,6 +41,8 @@ pipeline {
                 // Jenkins가 원격 서버에 SSH 접속할 수 있도록 sshagent 사용
                 sshagent (credentials: [env.SSH_CREDENTIALS_ID]) {
                     // 원격 서버에 배포 디렉토리 생성 (없으면 새로 만듦)
+                    // StrictHostKeyChecking > 서버 호스트 키 확인 안 함. 배포스크립트에서는..ㅇㅇ
+                    // UserKnownHostsFile ?
                     sh "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_USER}@${REMOTE_HOST} \"mkdir -p ${REMOTE_DIR}\""
                     // JAR 파일과 Dockerfile을 원격 서버에 복사
                     sh "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${JAR_FILE_NAME} Dockerfile ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/"
@@ -55,7 +57,7 @@ pipeline {
                     docker rm -f ${CONTAINER_NAME} || true
                     docker build -t ${DOCKER_IMAGE} .
                     docker run -d --name ${CONTAINER_NAME} -p ${PORT}:${PORT} ${DOCKER_IMAGE}
-                    
+                    ENDSSH
                     """
                 }
             }
