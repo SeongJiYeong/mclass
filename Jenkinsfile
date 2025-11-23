@@ -13,6 +13,7 @@ pipeline {
         REMOTE_HOST = "13.125.150.45" // 원격(spring) 서버 IP(Public IP)
         REMOTE_DIR = "/home/ec2-user/deploy" // 원격 서버에 파일 복사할 경로
         SSH_CREDENTIALS_ID = "db535098-38ec-4ef6-96bb-3056bcb32b56" // Jenkins SSH 자격 증명 ID
+        SECRET_FILE_ID = "1763fe05-0e1e-45d5-8555-1068b3434c38" // Jenkins Secret file id
     }
     stages {
         stage('Git Checkout') {
@@ -29,28 +30,69 @@ pipeline {
             }
         }
 
-        stage('Prepare Jar') {
+        stage('Inject Spring Config (Secret File)') {
             steps {
-                // 빌드 결과물인 JAR 파일을 지정한 이름(app.jar)으로 복사
-                sh 'cp target/demo-0.0.1-SNAPSHOT.jar ${JAR_FILE_NAME}'
-            }
-        }
-
-        stage('Copy to Remote Server') {
-            steps {
-                // Jenkins가 원격 서버에 SSH 접속할 수 있도록 sshagent 사용
-                sshagent (credentials: [env.SSH_CREDENTIALS_ID]) {
-                    // 원격 서버에 배포 디렉토리 생성 (없으면 새로 만듦)
-                    // StrictHostKeyChecking > 서버 호스트 키 확인 안 함. 배포스크립트에서는..ㅇㅇ
-                    // UserKnownHostsFile ?
-                    sh "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_USER}@${REMOTE_HOST} \"mkdir -p ${REMOTE_DIR}\""
-                    // JAR 파일과 Dockerfile을 원격 서버에 복사
-                    sh "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${JAR_FILE_NAME} Dockerfile ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/"
+                withCredentials([file(credentialsId: env.SECRET_FILE_ID, variable: 'SPRING_CONFIG_FILE')]) {
+                    sh """
+                        echo "[INFO] Using secret file: $SPRING_CONFIG_FILE"
+                        cp \$SPRING_CONFIG_FILE ./application-prod.properties
+                    """
                 }
             }
         }
 
-        //ENDSSH 앞 혹은 뒤에 공백이 있으면 오류가 납니다. !
+        stage('Inject Spring Config (Secret File)') {
+            steps {
+                withCredentials()
+            }
+        }
+
+        // 기존 소스 
+        // stage('Copy to Remote Server') {
+        //     steps {
+        //         // Jenkins가 원격 서버에 SSH 접속할 수 있도록 sshagent 사용
+        //         sshagent (credentials: [env.SSH_CREDENTIALS_ID]) {
+        //             // 원격 서버에 배포 디렉토리 생성 (없으면 새로 만듦)
+        //             // StrictHostKeyChecking > 서버 호스트 키 확인 안 함. 배포스크립트에서는..ㅇㅇ
+        //             // UserKnownHostsFile ?
+        //             sh "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_USER}@${REMOTE_HOST} \"mkdir -p ${REMOTE_DIR}\""
+        //             // JAR 파일과 Dockerfile을 원격 서버에 복사
+        //             sh "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${JAR_FILE_NAME} Dockerfile ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/"
+        //         }
+        //     }
+        // }
+
+        stage('Copy to Remote Server') {
+            steps {
+                sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_USER}@${REMOTE_HOST} "mkdir -p ${REMOTE_DIR}"
+                        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                            ${JAR_FILE_NAME} \
+                            application-prod.properties \
+                            Dockerfile \
+                            ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
+                    """
+                }
+            }
+        }
+
+        //ENDSSH 앞 혹은 뒤에 공백이 있으면 오류가 납니다. ! 이건 기존 것.
+//         stage('Remote Docker Build & Deploy') {
+//             steps {
+//                 sshagent (credentials: [env.SSH_CREDENTIALS_ID]) {
+//                 sh """
+// ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_USER}@${REMOTE_HOST} << ENDSSH
+//     cd ${REMOTE_DIR} || exit 1
+//     docker rm -f ${CONTAINER_NAME} || true
+//     docker build -t ${DOCKER_IMAGE} .
+//     docker run -d --name ${CONTAINER_NAME} -p ${PORT}:${PORT} ${DOCKER_IMAGE}
+// ENDSSH
+//                     """
+//                 }
+//             }
+//         }
+
         stage('Remote Docker Build & Deploy') {
             steps {
                 sshagent (credentials: [env.SSH_CREDENTIALS_ID]) {
@@ -58,8 +100,10 @@ pipeline {
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_USER}@${REMOTE_HOST} << ENDSSH
     cd ${REMOTE_DIR} || exit 1
     docker rm -f ${CONTAINER_NAME} || true
-    docker build -t ${DOCKER_IMAGE} .
-    docker run -d --name ${CONTAINER_NAME} -p ${PORT}:${PORT} ${DOCKER_IMAGE}
+    docker build --build-arg PROFILE=prod -t ${DOCKER_IMAGE} .
+    docker run -d --name ${CONTAINER_NAME} -p ${PORT}:${PORT} \
+        -e SPRING_PROFILES_ACTIVE=prod \
+        ${DOCKER_IMAGE}
 ENDSSH
                     """
                 }
